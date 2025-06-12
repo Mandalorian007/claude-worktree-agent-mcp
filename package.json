@@ -12,10 +12,22 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "prepare": "npm run build",
-    "test": "node dist/index.js --help || echo 'MCP server started successfully'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
     "prepack": "npm run build"
   },
-  "keywords": ["mcp", "claude", "git", "worktree", "automation", "ai", "development"],
+  "keywords": [
+    "mcp",
+    "claude",
+    "git",
+    "worktree",
+    "automation",
+    "ai",
+    "development"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "repository": {
@@ -28,12 +40,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0",
-    "simple-git": "^3.21.0",
+    "@types/node": "^20.10.0",
     "execa": "^8.0.1",
-    "@types/node": "^20.10.0"
+    "simple-git": "^3.21.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "@vitest/ui": "^3.2.3",
+    "typescript": "^5.3.0",
+    "vitest": "^3.2.3"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -44,4 +58,4 @@
     "LICENSE"
   ],
   "preferGlobal": true
-} 
+}

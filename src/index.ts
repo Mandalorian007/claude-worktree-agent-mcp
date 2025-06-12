@@ -13,7 +13,7 @@ import { featureCleanup } from './tools/feature-cleanup.js';
 import { featureRevision } from './tools/feature-revision.js';
 import { verifySetup } from './tools/verify-setup.js';
 
-const server = new Server(
+const server: Server = new Server(
   {
     name: 'claude-worktree-agent',
     version: '1.0.0',
