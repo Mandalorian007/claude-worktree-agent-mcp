@@ -10,7 +10,15 @@ interface FeatureStatusArgs {
 export async function featureStatus(args: FeatureStatusArgs = {}) {
   const { featureName } = args;
 
-  if (!fs.existsSync('.worktrees')) {
+  // Get project root directory - require PROJECT_ROOT env var for Cursor MCP
+  const projectRoot = process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error('PROJECT_ROOT environment variable not set. This is required for Cursor MCP. Add "env": {"PROJECT_ROOT": "/path/to/your/project"} to your MCP configuration.');
+  }
+
+  const worktreesPath = path.join(projectRoot, '.worktrees');
+
+  if (!fs.existsSync(worktreesPath)) {
     return {
       content: [
         {
@@ -21,96 +29,74 @@ export async function featureStatus(args: FeatureStatusArgs = {}) {
     };
   }
 
-  const git = simpleGit();
-  const worktrees = fs.readdirSync('.worktrees').filter((name: string) => {
-    const worktreePath = path.join('.worktrees', name);
-    return fs.statSync(worktreePath).isDirectory();
-  });
+  const git = simpleGit(projectRoot);
+  let statusText = '📂 **Active Feature Development**\n\n';
 
-  if (worktrees.length === 0) {
+  // Get target features to check
+  const targetFeatures = featureName 
+    ? [featureName] 
+    : fs.readdirSync(worktreesPath).filter(dir => 
+        fs.statSync(path.join(worktreesPath, dir)).isDirectory()
+      );
+
+  if (targetFeatures.length === 0) {
     return {
       content: [
         {
           type: 'text',
-          text: '📂 No active feature development found',
+          text: featureName 
+            ? `📂 Feature '${featureName}' not found`
+            : '📂 No active features found',
         },
       ],
     };
   }
 
-  // Filter by specific feature if requested
-  const targetWorktrees = featureName 
-    ? worktrees.filter((name: string) => name === featureName)
-    : worktrees;
-
-  if (featureName && targetWorktrees.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `❌ Feature '${featureName}' not found`,
-        },
-      ],
-    };
-  }
-
-  let statusText = '🔍 **Feature Development Status**\n==============================\n\n';
-
-  for (const worktreeName of targetWorktrees) {
-    const worktreePath = path.join('.worktrees', worktreeName);
-    const branchName = `feature/${worktreeName}`;
+  for (const feature of targetFeatures) {
+    const worktreePath = path.join(worktreesPath, feature);
+    const branchName = `feature/${feature}`;
     
-    statusText += `📁 **${worktreeName}**\n`;
+    statusText += `🔨 **${feature}**\n`;
     statusText += `   Path: ${worktreePath}\n`;
-    statusText += `   Branch: ${branchName}\n`;
 
     try {
       // Check if branch exists
       const branches = await git.branchLocal();
       if (branches.all.includes(branchName)) {
-        // Change to worktree directory to check status
-        const worktreeGit = simpleGit(worktreePath);
-        
-        // Check git status
-        const status = await worktreeGit.status();
-        if (status.files.length > 0) {
-          statusText += `   Status: 🟡 Working (${status.files.length} files changed)\n`;
-          // Show first 3 files
-          status.files.slice(0, 3).forEach((file: any) => {
-            statusText += `     ${file.index || file.working_dir || '?'} ${file.path}\n`;
-          });
-          if (status.files.length > 3) {
-            statusText += `     ... and ${status.files.length - 3} more files\n`;
-          }
-        } else {
-          statusText += `   Status: ✅ Clean working directory\n`;
-        }
+        statusText += `   Branch: ✅ ${branchName}\n`;
 
-        // Check for commits
+        // Get commit info
         try {
-          const log = await worktreeGit.log({ from: 'main', to: 'HEAD' });
+          const worktreeGit = simpleGit(worktreePath);
+          const log = await worktreeGit.log({ from: 'main', to: 'HEAD', maxCount: 1 });
           if (log.total > 0) {
-            statusText += `   Commits: ${log.total} ahead of main\n`;
-            // Show first 2 commits
-            log.all.slice(0, 2).forEach((commit: any) => {
-              statusText += `     ${commit.hash.substring(0, 7)} ${commit.message}\n`;
-            });
-            if (log.total > 2) {
-              statusText += `     ... and ${log.total - 2} more commits\n`;
-            }
+            const latestCommit = log.latest;
+            statusText += `   Latest: ${latestCommit?.hash.substring(0, 7)} ${latestCommit?.message}\n`;
           } else {
-            statusText += `   Commits: No commits yet\n`;
+            statusText += `   Latest: No commits yet\n`;
+          }
+
+          const status = await worktreeGit.status();
+          if (status.files.length > 0) {
+            statusText += `   Status: ${status.files.length} changed file(s)\n`;
+          } else {
+            statusText += `   Status: Working tree clean\n`;
           }
         } catch {
-          statusText += `   Commits: Unable to check\n`;
+          statusText += `   Status: Unable to read git status\n`;
         }
 
         // Check for PR (using gh CLI)
         try {
-          process.chdir(worktreePath);
-          const { stdout: prUrl } = await execa('gh', ['pr', 'view', '--json', 'url', '-q', '.url'], { stdio: 'pipe' });
+          const { stdout: prUrl } = await execa('gh', ['pr', 'view', '--json', 'url', '-q', '.url'], { 
+            stdio: 'pipe',
+            cwd: worktreePath
+          });
           if (prUrl.trim()) {
-            const { stdout: prState } = await execa('gh', ['pr', 'view', '--json', 'state', '-q', '.state'], { stdio: 'pipe' });
+            const { stdout: prState } = await execa('gh', ['pr', 'view', '--json', 'state', '-q', '.state'], { 
+              stdio: 'pipe',
+              cwd: worktreePath
+            });
             statusText += `   PR: 🔗 ${prState.trim()} - ${prUrl.trim()}\n`;
           }
         } catch {
@@ -121,13 +107,11 @@ export async function featureStatus(args: FeatureStatusArgs = {}) {
           } catch {
             statusText += `   PR: 📤 Not pushed to remote yet\n`;
           }
-        } finally {
-          try { process.chdir('../..'); } catch {}
         }
 
         // Check if Claude is running (basic process check)
         try {
-          await execa('pgrep', ['-f', `claude.*${worktreePath.replace('./', '')}`], { stdio: 'pipe' });
+          await execa('pgrep', ['-f', `claude.*${path.basename(worktreePath)}`], { stdio: 'pipe' });
           statusText += `   Claude: 🤖 Running\n`;
         } catch {
           statusText += `   Claude: 💤 Not running\n`;

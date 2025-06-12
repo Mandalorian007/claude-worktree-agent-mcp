@@ -12,9 +12,17 @@ interface FeatureStartArgs {
 export async function featureStart(args: FeatureStartArgs) {
   const { featureFile, branchPrefix = 'feature/', baseBranch = 'main' } = args;
 
+  // Get project root directory - require PROJECT_ROOT env var for Cursor MCP
+  const projectRoot = process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error('PROJECT_ROOT environment variable not set. This is required for Cursor MCP. Add "env": {"PROJECT_ROOT": "/path/to/your/project"} to your MCP configuration.');
+  }
+  
+  const fullFeaturePath = path.isAbsolute(featureFile) ? featureFile : path.join(projectRoot, featureFile);
+
   // Validate feature file exists
-  if (!fs.existsSync(featureFile)) {
-    throw new Error(`Feature file '${featureFile}' not found`);
+  if (!fs.existsSync(fullFeaturePath)) {
+    throw new Error(`Feature file '${featureFile}' not found at '${fullFeaturePath}'`);
   }
 
   // Extract feature name from file path
@@ -22,7 +30,7 @@ export async function featureStart(args: FeatureStartArgs) {
     .toLowerCase()
     .replace(/[^a-zA-Z0-9-]/g, '-'); 
 
-  const worktreePath = `.worktrees/${featureName}`;
+  const worktreePath = path.join(projectRoot, '.worktrees', featureName);
   const branchName = `${branchPrefix}${featureName}`;
 
   // Check if worktree already exists
@@ -30,7 +38,7 @@ export async function featureStart(args: FeatureStartArgs) {
     throw new Error(`Feature '${featureName}' already exists at '${worktreePath}'. Use feature_revision to modify or feature_cleanup to remove.`);
   }
 
-  const git = simpleGit();
+  const git = simpleGit(projectRoot);
 
   try {
     // Ensure we're in a git repository
@@ -40,14 +48,14 @@ export async function featureStart(args: FeatureStartArgs) {
     }
 
     // Create worktree directory
-    fs.mkdirSync('.worktrees', { recursive: true });
+    fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
 
     // Create new branch and worktree
     await git.checkout(['-b', branchName, baseBranch]);
     await git.raw(['worktree', 'add', worktreePath, branchName]);
 
     // Copy feature specification
-    const featureContent = fs.readFileSync(featureFile, 'utf-8');
+    const featureContent = fs.readFileSync(fullFeaturePath, 'utf-8');
     fs.writeFileSync(path.join(worktreePath, 'FEATURE.md'), featureContent);
 
     // Copy essential project files
@@ -66,38 +74,36 @@ export async function featureStart(args: FeatureStartArgs) {
     filesToCopy.forEach(pattern => {
       if (pattern.includes('*')) {
         // Handle glob patterns
-        const files = fs.readdirSync('.').filter(file => {
+        const files = fs.readdirSync(projectRoot).filter(file => {
           const regex = new RegExp(pattern.replace('*', '.*'));
           return regex.test(file);
         });
         files.forEach(file => {
-          if (fs.existsSync(file)) {
-            fs.copyFileSync(file, path.join(worktreePath, file));
+          if (fs.existsSync(path.join(projectRoot, file))) {
+            fs.copyFileSync(path.join(projectRoot, file), path.join(worktreePath, file));
           }
         });
       } else {
         // Handle exact filenames
-        if (fs.existsSync(pattern)) {
-          fs.copyFileSync(pattern, path.join(worktreePath, pattern));
+        if (fs.existsSync(path.join(projectRoot, pattern))) {
+          fs.copyFileSync(path.join(projectRoot, pattern), path.join(worktreePath, pattern));
         }
       }
     });
 
     // Copy entire src directory if it exists
-    if (fs.existsSync('src')) {
-      fs.cpSync('src', path.join(worktreePath, 'src'), { recursive: true });
+    if (fs.existsSync(path.join(projectRoot, 'src'))) {
+      fs.cpSync(path.join(projectRoot, 'src'), path.join(worktreePath, 'src'), { recursive: true });
     }
 
     // Install dependencies in worktree
-    process.chdir(worktreePath);
-    
-    if (fs.existsSync('package.json')) {
+    if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
       try {
         // Try pnpm first, fall back to npm
-        await execa('pnpm', ['install'], { stdio: 'pipe' });
+        await execa('pnpm', ['install'], { stdio: 'pipe', cwd: worktreePath });
       } catch {
         try {
-          await execa('npm', ['install'], { stdio: 'pipe' });
+          await execa('npm', ['install'], { stdio: 'pipe', cwd: worktreePath });
         } catch (error) {
           console.warn('Warning: Failed to install dependencies. Claude Code will proceed but may encounter issues.');
         }
@@ -135,10 +141,9 @@ Work autonomously and systematically. The feature specification in FEATURE.md is
     
     const claudeProcess = execa(claudeCommand, claudeArgs, {
       input: instructions,
-      stdio: ['pipe', 'pipe', 'pipe']  // Ensure proper stdio handling
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: worktreePath
     });
-
-    process.chdir('../..');
 
     return {
       content: [
@@ -147,7 +152,7 @@ Work autonomously and systematically. The feature specification in FEATURE.md is
           text: `✅ Feature development started!
 
 📁 **Feature:** ${featureName}
-📄 **Source:** ${featureFile}
+📄 **Source:** ${fullFeaturePath}
 📍 **Location:** ${worktreePath}
 🌿 **Branch:** ${branchName}
 🔧 **Claude Code:** ${claudeCommand} ${claudeArgs.join(' ')}
@@ -171,7 +176,6 @@ Use \`feature_status\` to monitor progress.
     // Clean up on failure
     try {
       if (fs.existsSync(worktreePath)) {
-        process.chdir('../..');
         await git.raw(['worktree', 'remove', worktreePath, '--force']);
       }
       await git.deleteLocalBranch(branchName, true);

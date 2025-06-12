@@ -12,68 +12,65 @@ interface FeatureCleanupArgs {
 export async function featureCleanup(args: FeatureCleanupArgs = {}) {
   const { featureName, force = false, all = false } = args;
 
-  if (!fs.existsSync('.worktrees')) {
+  // Get project root directory - require PROJECT_ROOT env var for Cursor MCP
+  const projectRoot = process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error('PROJECT_ROOT environment variable not set. This is required for Cursor MCP. Add "env": {"PROJECT_ROOT": "/path/to/your/project"} to your MCP configuration.');
+  }
+
+  const worktreesPath = path.join(projectRoot, '.worktrees');
+
+  if (!fs.existsSync(worktreesPath)) {
     return {
       content: [
         {
           type: 'text',
-          text: '📂 No worktrees directory found - nothing to clean up',
+          text: '📂 No worktrees found to clean up',
         },
       ],
     };
   }
 
-  const git = simpleGit();
-  const worktrees = fs.readdirSync('.worktrees').filter((name: string) => {
-    const worktreePath = path.join('.worktrees', name);
-    return fs.statSync(worktreePath).isDirectory();
-  });
+  const git = simpleGit(projectRoot);
+  
+  // Get list of worktrees to clean
+  const allWorktrees = fs.readdirSync(worktreesPath).filter(dir => 
+    fs.statSync(path.join(worktreesPath, dir)).isDirectory()
+  );
 
-  if (worktrees.length === 0) {
+  let targetWorktrees: string[];
+  if (featureName) {
+    // Clean specific feature
+    if (!allWorktrees.includes(featureName)) {
+      throw new Error(`Feature '${featureName}' not found`);
+    }
+    targetWorktrees = [featureName];
+  } else if (all) {
+    // Clean all features (dangerous)
+    targetWorktrees = allWorktrees;
+  } else {
+    // Default: clean only merged/closed features
+    targetWorktrees = allWorktrees;
+  }
+
+  if (targetWorktrees.length === 0) {
     return {
       content: [
         {
           type: 'text',
-          text: '📂 No worktrees found - nothing to clean up',
+          text: '🧹 No features to clean up',
         },
       ],
     };
   }
 
-  let cleanupResults = '🧹 **Feature Cleanup**\n==================\n\n';
+  let cleanupResults = `🧹 **Feature Cleanup Results**\n\n`;
   let cleanedCount = 0;
   let skippedCount = 0;
 
-  // Determine which worktrees to clean
-  let targetWorktrees: string[];
-  
-  if (featureName) {
-    // Clean specific feature
-    if (worktrees.includes(featureName)) {
-      targetWorktrees = [featureName];
-    } else {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `❌ Feature '${featureName}' not found`,
-          },
-        ],
-      };
-    }
-  } else if (all) {
-    // Clean all features
-    targetWorktrees = worktrees;
-    cleanupResults += '⚠️ **Warning: Cleaning ALL features (including active ones)**\n\n';
-  } else {
-    // Clean only completed features (merged/closed PRs)
-    targetWorktrees = worktrees;
-    cleanupResults += 'Cleaning up completed features (merged/closed PRs)...\n\n';
-  }
-
   // Clean up each target worktree
   for (const worktreeName of targetWorktrees) {
-    const worktreePath = path.join('.worktrees', worktreeName);
+    const worktreePath = path.join(worktreesPath, worktreeName);
     const branchName = `feature/${worktreeName}`;
     
     cleanupResults += `🧹 **${worktreeName}**\n`;
@@ -84,8 +81,10 @@ export async function featureCleanup(args: FeatureCleanupArgs = {}) {
       // Check PR status if not forcing
       if (!shouldClean) {
         try {
-          process.chdir(worktreePath);
-          const { stdout: prState } = await execa('gh', ['pr', 'view', '--json', 'state', '-q', '.state'], { stdio: 'pipe' });
+          const { stdout: prState } = await execa('gh', ['pr', 'view', '--json', 'state', '-q', '.state'], { 
+            stdio: 'pipe',
+            cwd: worktreePath
+          });
           
           if (prState.trim() === 'MERGED') {
             cleanupResults += `   ✅ PR merged - safe to remove\n`;
@@ -101,8 +100,6 @@ export async function featureCleanup(args: FeatureCleanupArgs = {}) {
           // No PR found
           cleanupResults += `   ⚠️ No PR found - removing anyway\n`;
           shouldClean = true;
-        } finally {
-          try { process.chdir('../..'); } catch {}
         }
       }
 
@@ -143,8 +140,8 @@ export async function featureCleanup(args: FeatureCleanupArgs = {}) {
   }
 
   // Clean up empty worktrees directory
-  if (fs.existsSync('.worktrees') && fs.readdirSync('.worktrees').length === 0) {
-    fs.rmdirSync('.worktrees');
+  if (fs.existsSync(worktreesPath) && fs.readdirSync(worktreesPath).length === 0) {
+    fs.rmdirSync(worktreesPath);
     cleanupResults += `   🗂️ Removed empty .worktrees directory\n`;
   }
 

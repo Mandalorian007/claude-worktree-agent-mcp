@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import simpleGit from 'simple-git';
 import * as fs from 'fs';
+import * as path from 'path';
 
 interface VerifySetupArgs {
   claudeCommand?: string;
@@ -18,41 +19,138 @@ export async function verifySetup(args: VerifySetupArgs = {}) {
   
   const checks: Array<{ name: string; result: CheckResult }> = [];
 
-  // Check 1: Git repository (ESSENTIAL)
+  // Get working directory - require PROJECT_ROOT env var for Cursor MCP
+  const projectRoot = process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error('PROJECT_ROOT environment variable not set. This is required for Cursor MCP. Add "env": {"PROJECT_ROOT": "/path/to/your/project"} to your MCP configuration.');
+  }
+  
+  const cwd = projectRoot;
+  
+  // Check 1: Git CLI installation (ESSENTIAL)
   try {
-    await execa('git', ['status'], { stdio: 'pipe' });
+    const { stdout } = await execa('git', ['--version'], { stdio: 'pipe' });
     checks.push({
-      name: 'Git Repository',
+      name: 'Git CLI',
       result: {
         status: 'pass',
-        message: 'Git repository found',
-        details: verbose ? 'Ready for worktree operations' : undefined
+        message: 'Git CLI available',
+        details: verbose ? stdout.trim() : undefined
       }
     });
   } catch (error) {
-    try {
-      await execa('git', ['--version'], { stdio: 'pipe' });
+    checks.push({
+      name: 'Git CLI',
+      result: {
+        status: 'fail',
+        message: 'Git CLI not found',
+        details: 'Install git: https://git-scm.com'
+      }
+    });
+  }
+
+  // Check 2: Git repository status (ESSENTIAL)
+  try {
+    // Use the project root directory for git operations
+    const result = await execa('git', ['rev-parse', '--is-inside-work-tree'], { 
+      stdio: 'pipe',
+      cwd: cwd
+    });
+    
+    if (result.stdout.trim() === 'true') {
+      checks.push({
+        name: 'Git Repository',
+        result: {
+          status: 'pass',
+          message: 'Git repository found',
+          details: verbose ? `Project directory: ${cwd}` : undefined
+        }
+      });
+    } else {
       checks.push({
         name: 'Git Repository',
         result: {
           status: 'fail',
           message: 'Not in a git repository',
-          details: 'Run this from your project root directory'
-        }
-      });
-    } catch {
-      checks.push({
-        name: 'Git Repository',
-        result: {
-          status: 'fail',
-          message: 'Git not available',
-          details: 'Install git: https://git-scm.com'
+          details: `Command returned: ${result.stdout.trim()} | Directory: ${cwd}`
         }
       });
     }
+  } catch (error) {
+    // Add comprehensive debugging information
+    let debugInfo = `Directory: ${cwd}`;
+    if (error instanceof Error) {
+      debugInfo += ` | Error: ${error.message}`;
+    }
+    
+    // Check for execa specific error properties
+    if (error && typeof error === 'object') {
+      if ('exitCode' in error) {
+        debugInfo += ` | Exit code: ${error.exitCode}`;
+      }
+      if ('stderr' in error && error.stderr) {
+        debugInfo += ` | stderr: ${error.stderr}`;
+      }
+      if ('stdout' in error && error.stdout) {
+        debugInfo += ` | stdout: ${error.stdout}`;
+      }
+    }
+    
+    checks.push({
+      name: 'Git Repository',
+      result: {
+        status: 'fail',
+        message: 'Git repository check failed',
+        details: debugInfo
+      }
+    });
   }
 
-  // Check 2: Claude Code availability (ESSENTIAL)
+  // Check 3: GitHub CLI installation (ESSENTIAL)
+  try {
+    const { stdout } = await execa('gh', ['--version'], { stdio: 'pipe' });
+    checks.push({
+      name: 'GitHub CLI',
+      result: {
+        status: 'pass',
+        message: 'GitHub CLI available',
+        details: verbose ? stdout.split('\n')[0] : undefined
+      }
+    });
+  } catch (error) {
+    checks.push({
+      name: 'GitHub CLI',
+      result: {
+        status: 'fail',
+        message: 'GitHub CLI (gh) not found',
+        details: 'Install: brew install gh'
+      }
+    });
+  }
+
+  // Check 4: GitHub CLI authentication (INFORMATIONAL)
+  try {
+    const { stdout } = await execa('gh', ['auth', 'status'], { stdio: 'pipe' });
+    checks.push({
+      name: 'GitHub Authentication',
+      result: {
+        status: 'pass',
+        message: 'GitHub authentication active',
+        details: verbose ? 'Ready for PR operations' : undefined
+      }
+    });
+  } catch (error) {
+    checks.push({
+      name: 'GitHub Authentication',
+      result: {
+        status: 'warn',
+        message: 'Not authenticated with GitHub',
+        details: 'Run: gh auth login'
+      }
+    });
+  }
+
+  // Check 5: Claude Code availability (ESSENTIAL)
   try {
     const { stdout } = await execa('which', [claudeCommand], { stdio: 'pipe' });
     checks.push({
@@ -70,28 +168,6 @@ export async function verifySetup(args: VerifySetupArgs = {}) {
         status: 'fail',
         message: `Claude Code not found at '${claudeCommand}'`,
         details: 'Install Claude Code or set CLAUDE_COMMAND environment variable'
-      }
-    });
-  }
-
-  // Check 3: GitHub CLI (ESSENTIAL for PR operations)
-  try {
-    await execa('gh', ['--version'], { stdio: 'pipe' });
-    checks.push({
-      name: 'GitHub CLI',
-      result: {
-        status: 'pass',
-        message: 'GitHub CLI available',
-        details: verbose ? 'Ready for PR operations' : undefined
-      }
-    });
-  } catch (error) {
-    checks.push({
-      name: 'GitHub CLI',
-      result: {
-        status: 'fail',
-        message: 'GitHub CLI (gh) not found',
-        details: 'Install: brew install gh'
       }
     });
   }
@@ -176,6 +252,7 @@ export async function verifySetup(args: VerifySetupArgs = {}) {
 
   // Essential checks first
   const essentialChecks = checks.filter(c => 
+    c.name === 'Git CLI' || 
     c.name === 'Git Repository' || 
     c.name === 'Claude Code' || 
     c.name === 'GitHub CLI'
@@ -193,6 +270,7 @@ export async function verifySetup(args: VerifySetupArgs = {}) {
 
   // Optional checks
   const optionalChecks = checks.filter(c => 
+    c.name !== 'Git CLI' && 
     c.name !== 'Git Repository' && 
     c.name !== 'Claude Code' && 
     c.name !== 'GitHub CLI'
@@ -203,7 +281,7 @@ export async function verifySetup(args: VerifySetupArgs = {}) {
     for (const check of optionalChecks) {
       const icon = check.result.status === 'pass' ? '✅' : '⚠️';
       output += `${icon} **${check.name}**: ${check.result.message}\n`;
-      if (check.result.details && verbose) {
+      if (check.result.details && (check.result.status === 'fail' || verbose)) {
         output += `   ${check.result.details}\n`;
       }
     }

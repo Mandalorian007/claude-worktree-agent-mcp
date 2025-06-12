@@ -13,17 +13,24 @@ interface FeatureRevisionArgs {
 export async function featureRevision(args: FeatureRevisionArgs) {
   const { featureFile, revisionInstructions = '', userContext = '', force = false } = args;
 
+  // Get project root directory - require PROJECT_ROOT env var for Cursor MCP
+  const projectRoot = process.env.PROJECT_ROOT;
+  if (!projectRoot) {
+    throw new Error('PROJECT_ROOT environment variable not set. This is required for Cursor MCP. Add "env": {"PROJECT_ROOT": "/path/to/your/project"} to your MCP configuration.');
+  }
+
   // Extract feature name from file path (same logic as feature_start)
   const featureName = path.basename(featureFile, '.md')
     .toLowerCase()
     .replace(/[^a-zA-Z0-9-]/g, '-');
 
-  const worktreePath = `.worktrees/${featureName}`;
+  const worktreePath = path.join(projectRoot, '.worktrees', featureName);
   const branchName = `feature/${featureName}`;
+  const fullFeaturePath = path.isAbsolute(featureFile) ? featureFile : path.join(projectRoot, featureFile);
 
   // Validate feature file exists
-  if (!fs.existsSync(featureFile)) {
-    throw new Error(`Feature file '${featureFile}' not found`);
+  if (!fs.existsSync(fullFeaturePath)) {
+    throw new Error(`Feature file '${featureFile}' not found at '${fullFeaturePath}'`);
   }
 
   // Validate worktree exists
@@ -34,7 +41,7 @@ export async function featureRevision(args: FeatureRevisionArgs) {
   // Check if Claude is currently running (unless forced)
   if (!force) {
     try {
-      await execa('pgrep', ['-f', `claude.*${worktreePath.replace('./', '')}`], { stdio: 'pipe' });
+      await execa('pgrep', ['-f', `claude.*${featureName}`], { stdio: 'pipe' });
       throw new Error(`Claude is still running on feature '${featureName}'. Use force=true to override or wait for completion.`);
     } catch (error) {
       // Good - no Claude process found, safe to proceed
@@ -44,7 +51,7 @@ export async function featureRevision(args: FeatureRevisionArgs) {
     }
   }
 
-  const git = simpleGit();
+  const git = simpleGit(projectRoot);
 
   try {
     // Get ALL PR feedback without filtering - let Claude analyze what's relevant
@@ -54,10 +61,11 @@ export async function featureRevision(args: FeatureRevisionArgs) {
     let prNumber = '';
 
     try {
-      process.chdir(worktreePath);
-      
       // Get basic PR info
-      const { stdout: prData } = await execa('gh', ['pr', 'view', '--json', 'url,title,body,state,number'], { stdio: 'pipe' });
+      const { stdout: prData } = await execa('gh', ['pr', 'view', '--json', 'url,title,body,state,number'], { 
+        stdio: 'pipe',
+        cwd: worktreePath
+      });
       const pr = JSON.parse(prData);
       
       if (pr.url && pr.number) {
@@ -76,7 +84,10 @@ export async function featureRevision(args: FeatureRevisionArgs) {
 
         // Get general PR comments
         try {
-          const { stdout: commentsData } = await execa('gh', ['pr', 'view', '--json', 'comments', '-q', '.comments[]'], { stdio: 'pipe' });
+          const { stdout: commentsData } = await execa('gh', ['pr', 'view', '--json', 'comments', '-q', '.comments[]'], { 
+            stdio: 'pipe',
+            cwd: worktreePath
+          });
           if (commentsData.trim()) {
             const comments = commentsData.trim().split('\n').map(line => {
               try {
@@ -100,7 +111,10 @@ export async function featureRevision(args: FeatureRevisionArgs) {
 
         // Get PR reviews
         try {
-          const { stdout: reviewsData } = await execa('gh', ['pr', 'review', 'list', '--json', 'author,state,body,submittedAt'], { stdio: 'pipe' });
+          const { stdout: reviewsData } = await execa('gh', ['pr', 'review', 'list', '--json', 'author,state,body,submittedAt'], { 
+            stdio: 'pipe',
+            cwd: worktreePath
+          });
           if (reviewsData.trim()) {
             const reviews = JSON.parse(reviewsData);
             if (reviews.length > 0) {
@@ -121,7 +135,10 @@ export async function featureRevision(args: FeatureRevisionArgs) {
         // Get ALL inline code comments (resolved and unresolved)
         try {
           // Use gh pr view to get review comments instead of direct API
-          const { stdout: reviewCommentsData } = await execa('gh', ['pr', 'view', '--json', 'reviewRequests,reviews'], { stdio: 'pipe' });
+          const { stdout: reviewCommentsData } = await execa('gh', ['pr', 'view', '--json', 'reviewRequests,reviews'], { 
+            stdio: 'pipe',
+            cwd: worktreePath
+          });
           if (reviewCommentsData.trim()) {
             const reviewData = JSON.parse(reviewCommentsData);
             if (reviewData.reviews && reviewData.reviews.length > 0) {
@@ -150,8 +167,6 @@ export async function featureRevision(args: FeatureRevisionArgs) {
       }
     } catch {
       prInfo = '**Note:** No existing PR found. Will create new PR after revisions.\n\n';
-    } finally {
-      process.chdir('../..');
     }
 
     // Get the current git status and recent changes
@@ -161,8 +176,8 @@ export async function featureRevision(args: FeatureRevisionArgs) {
 
     // Read CURRENT feature specification from the provided file (may have been updated)
     let currentFeatureSpec = '';
-    if (fs.existsSync(featureFile)) {
-      currentFeatureSpec = fs.readFileSync(featureFile, 'utf-8');
+    if (fs.existsSync(fullFeaturePath)) {
+      currentFeatureSpec = fs.readFileSync(fullFeaturePath, 'utf-8');
     }
 
     // Read the original feature spec from the worktree for comparison
@@ -200,13 +215,13 @@ ${currentFeatureSpec}
     // Get diff of changes so far
     let changesSummary = '';
     try {
-      process.chdir(worktreePath);
-      const { stdout: diffOutput } = await execa('git', ['diff', 'main...HEAD', '--stat'], { stdio: 'pipe' });
+      const { stdout: diffOutput } = await execa('git', ['diff', 'main...HEAD', '--stat'], { 
+        stdio: 'pipe',
+        cwd: worktreePath
+      });
       changesSummary = diffOutput;
     } catch {
       changesSummary = 'Unable to generate diff summary';
-    } finally {
-      process.chdir('../..');
     }
 
     // Build revision requirements section
@@ -310,12 +325,10 @@ Work systematically and intelligently. Your analysis and reasoning are key to ef
 
     // Copy updated feature file to worktree if it has changed
     if (currentFeatureSpec !== originalFeatureSpec) {
-      fs.copyFileSync(featureFile, worktreeFeatureSpecPath);
+      fs.copyFileSync(fullFeaturePath, worktreeFeatureSpecPath);
     }
 
     // Start Claude Code for revision work
-    process.chdir(worktreePath);
-
     const claudeCommand = process.env.CLAUDE_COMMAND || 'claude';
     const claudeArgs = process.env.CLAUDE_ARGS ? process.env.CLAUDE_ARGS.split(' ') : ['--dangerously-skip-permissions'];
     
@@ -338,10 +351,9 @@ Your task is to:
 ${hasPR ? 'Use your AI reasoning to distinguish between feedback that has been resolved and feedback that still needs attention.' : 'Follow the provided revision requirements carefully.'}
 
 Document your analysis process clearly in your commit messages so the reasoning is transparent.`,
-      stdio: ['pipe', 'pipe', 'pipe']  // Ensure proper stdio handling
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: worktreePath
     });
-
-    process.chdir('../..');
 
     const feedbackTypes = [];
     if (allPRFeedback.includes('General PR Comments')) feedbackTypes.push('PR comments');
@@ -355,7 +367,7 @@ Document your analysis process clearly in your commit messages so the reasoning 
           text: `✅ Feature revision started with intelligent analysis!
 
 📁 **Feature:** ${featureName}
-📄 **Source:** ${featureFile}
+📄 **Source:** ${fullFeaturePath}
 📍 **Location:** ${worktreePath}
 🌿 **Branch:** ${branchName}
 📝 **Revision Instructions:** Saved to REVISION.md
