@@ -1,0 +1,9 @@
+{
+  "name": "Claude Worktree Agent - Simplified",
+  "description": "Git CLI + GitHub CLI only (no API tokens required)",
+  "mcpServers": {
+    "worktree-agent": {
+      "command": "claude-worktree-mcp"
+    }
+  }
+} 
