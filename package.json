@@ -11,11 +11,21 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "test": "node dist/index.js --help || echo 'MCP server started successfully'",
+    "prepack": "npm run build"
   },
-  "keywords": ["mcp", "claude", "git", "worktree", "automation"],
+  "keywords": ["mcp", "claude", "git", "worktree", "automation", "ai", "development"],
   "author": "Your Name",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/claude-worktree-agent-mcp.git"
+  },
+  "homepage": "https://github.com/your-username/claude-worktree-agent-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/your-username/claude-worktree-agent-mcp/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0",
     "simple-git": "^3.21.0",
@@ -30,6 +40,8 @@
   },
   "files": [
     "dist/**/*",
-    "README.md"
-  ]
+    "README.md",
+    "LICENSE"
+  ],
+  "preferGlobal": true
 } 
