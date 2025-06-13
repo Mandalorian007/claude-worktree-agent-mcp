@@ -72,6 +72,15 @@ if [ "$ORIGINAL_DIR" != "." ]; then
     cp "$FEATURE_FILE" "$WORKTREE_PATH/$FEATURE_FILE"
 fi
 
+# Copy Claude MCP configuration if it exists
+if [ -d ".claude" ]; then
+    echo "🤖 Copying Claude MCP configuration..."
+    cp -r ".claude" "$WORKTREE_PATH/"
+    echo "✅ Claude permissions and settings copied to worktree"
+else
+    echo "⚠️  No .claude directory found - Claude may have limited permissions in worktree"
+fi
+
 # Create comprehensive instructions for Claude Code
 INSTRUCTIONS="I need you to implement the feature described in FEATURE.md.
 
@@ -109,7 +118,7 @@ echo "📍 Working directory: $(pwd)"
 echo ""
 
 # Launch Claude Code with context and instructions
-echo "$INSTRUCTIONS" | claude --dangerously-skip-permissions FEATURE.md
+echo "$INSTRUCTIONS" | claude FEATURE.md
 
 echo ""
 echo "🎉 Feature development session complete!"

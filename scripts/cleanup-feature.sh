@@ -33,13 +33,13 @@ CLEANUP_SUCCESS=true
 
 # Step 1: Kill any running Claude Code processes
 echo "🔍 Checking for running Claude Code processes..."
-claude_pids=$(ps aux | grep "claude.*--dangerously-skip-permissions" | grep -v grep | awk '{print $2}' || true)
+claude_pids=$(ps aux | grep "claude.*FEATURE\.md" | grep -v grep | awk '{print $2}' || true)
 if [ -n "$claude_pids" ]; then
     echo "🛑 Stopping Claude Code processes: $claude_pids"
     echo "$claude_pids" | xargs kill 2>/dev/null || true
     sleep 2
     # Force kill if still running
-    still_running=$(ps aux | grep "claude.*--dangerously-skip-permissions" | grep -v grep | awk '{print $2}' || true)
+    still_running=$(ps aux | grep "claude.*FEATURE\.md" | grep -v grep | awk '{print $2}' || true)
     if [ -n "$still_running" ]; then
         echo "🛑 Force stopping stubborn processes: $still_running"
         echo "$still_running" | xargs kill -9 2>/dev/null || true

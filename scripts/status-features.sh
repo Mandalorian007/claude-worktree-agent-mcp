@@ -33,6 +33,13 @@ if [ -d ".worktrees" ] && [ "$(ls -A .worktrees 2>/dev/null)" ]; then
             else
                 echo "     ✅ Status: Clean working tree"
             fi
+            
+            # Check Claude configuration
+            if [ -d ".claude" ]; then
+                echo "     🤖 Claude: Configuration present"
+            else
+                echo "     ⚠️  Claude: No configuration (limited permissions)"
+            fi
             cd - >/dev/null
             echo ""
         fi
@@ -44,7 +51,7 @@ fi
 # Show running Claude Code processes
 echo ""
 echo "🤖 Claude Code Processes:"
-claude_processes=$(ps aux | grep "claude.*--dangerously-skip-permissions" | grep -v grep || true)
+claude_processes=$(ps aux | grep "claude.*FEATURE\.md" | grep -v grep || true)
 if [ -n "$claude_processes" ]; then
     echo "$claude_processes" | while read -r line; do
         pid=$(echo "$line" | awk '{print $2}')
