@@ -65,6 +65,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Base branch to branch from (default: main)',
               default: 'main',
             },
+            interactive: {
+              type: 'boolean',
+              description: 'Open Claude Code interactively in terminal (default: false)',
+              default: false,
+            },
           },
           required: ['featureFile'],
         },

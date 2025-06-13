@@ -7,10 +7,11 @@ interface FeatureStartArgs {
   featureFile: string;
   branchPrefix?: string;
   baseBranch?: string;
+  interactive?: boolean;
 }
 
 export async function featureStart(args: FeatureStartArgs) {
-  const { featureFile, branchPrefix = 'feature/', baseBranch = 'main' } = args;
+  const { featureFile, branchPrefix = 'feature/', baseBranch = 'main', interactive = false } = args;
 
   // Get project root directory - require PROJECT_ROOT env var for Cursor MCP
   const projectRoot = process.env.PROJECT_ROOT;
@@ -139,11 +140,26 @@ Work autonomously and systematically. The feature specification in FEATURE.md is
     const claudeCommand = process.env.CLAUDE_COMMAND || 'claude';
     const claudeArgs = process.env.CLAUDE_ARGS ? process.env.CLAUDE_ARGS.split(' ') : ['--dangerously-skip-permissions'];
     
-    const claudeProcess = execa(claudeCommand, claudeArgs, {
-      input: instructions,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: worktreePath
-    });
+    if (interactive) {
+      // Interactive mode: Open Claude Code in the terminal
+      const fullArgs = [...claudeArgs, 'FEATURE.md'];
+      const claudeProcess = execa(claudeCommand, fullArgs, {
+        stdio: 'inherit',
+        cwd: worktreePath
+      });
+      
+      // Don't wait for completion in interactive mode
+      claudeProcess.catch(() => {
+        // Ignore errors in interactive mode
+      });
+    } else {
+      // Background mode: Original behavior
+      const claudeProcess = execa(claudeCommand, claudeArgs, {
+        input: instructions,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: worktreePath
+      });
+    }
 
     return {
       content: [
@@ -155,15 +171,23 @@ Work autonomously and systematically. The feature specification in FEATURE.md is
 📄 **Source:** ${fullFeaturePath}
 📍 **Location:** ${worktreePath}
 🌿 **Branch:** ${branchName}
-🔧 **Claude Code:** ${claudeCommand} ${claudeArgs.join(' ')}
-📋 **Instructions:** Comprehensive development guide provided
+🔧 **Claude Code:** ${claudeCommand} ${claudeArgs.join(' ')}${interactive ? ' (Interactive Mode)' : ''}
+📋 **Instructions:** ${interactive ? 'Open in terminal for interactive development' : 'Comprehensive development guide provided'}
 
-The Claude Code agent is now working autonomously on your feature. It will:
+${interactive ? 
+`🖥️  **Interactive Mode Active**
+Claude Code is opening in your terminal where you can:
+- See the interactive development process
+- Provide real-time feedback and guidance
+- Monitor progress step-by-step
+
+Navigate to the worktree directory and interact with Claude Code directly.` :
+`The Claude Code agent is now working autonomously on your feature. It will:
 - Analyze the feature requirements in FEATURE.md
 - Study your existing codebase patterns
 - Implement the feature following your conventions
 - Write tests and documentation
-- Create a Pull Request when complete
+- Create a Pull Request when complete`}
 
 Use \`feature_status\` to monitor progress.
 
