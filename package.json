@@ -11,13 +11,10 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "prepare": "npm run build",
+    "prepare": "pnpm run build",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:run": "vitest run",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
-    "prepack": "npm run build"
+    "prepack": "pnpm run build"
   },
   "keywords": [
     "mcp",
