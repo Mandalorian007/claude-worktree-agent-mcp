@@ -49,6 +49,45 @@ This is an MCP (Model Context Protocol) server that enables autonomous Claude Co
 - **CLAUDE_COMMAND**: Optional custom Claude Code command path 
 - **CLAUDE_ARGS**: Optional custom Claude Code arguments
 
+## Claude Code Tools Available
+
+Claude Code has access to the following tools in this environment:
+
+### ✅ Full Access (No Permissions Required)
+- **Agent** - Run sub-agents for complex tasks
+- **Glob** - Find files with pattern matching  
+- **Grep** - Search file contents for patterns
+- **LS** - List directories and files
+- **Read** - Read file contents
+- **NotebookRead** - Read Jupyter notebooks
+- **TodoRead/TodoWrite** - Manage session task lists
+
+### ✅ Permitted Operations (Pre-approved)
+- **Bash** - Execute shell commands (git, pnpm, node, etc.)
+- **Edit** - Make targeted file edits
+- **MultiEdit** - Multiple edits on single files
+- **Write** - Create or overwrite files
+- **NotebookEdit** - Modify Jupyter notebooks
+- **Fetch** - Web requests (HTTPS)
+- **WebSearch** - Web searches
+
+### 🎯 Capabilities Summary
+Claude can autonomously:
+- Read and analyze codebases
+- Run git operations (status, commit, push, etc.)
+- Execute pnpm/npm commands (test, build, install, etc.)
+- Run Node.js scripts and tools
+- Create, edit, and delete files
+- Search web for information
+- Use text processing tools (sed, awk, grep, etc.)
+- Manage development processes
+
+### ⚠️ Limitations
+- Cannot sudo or run system admin commands
+- Cannot delete system directories (/, /*, etc.)
+- Cannot set overly permissive file permissions
+- All operations are scoped to the project directory
+
 ## Testing
 
 Uses Vitest with Node.js environment. Tests focus on:

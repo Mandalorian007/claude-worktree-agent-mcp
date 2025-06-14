@@ -1,69 +1,75 @@
 #!/bin/bash
 
 # Feature Status Script
-# Shows active worktrees and Claude Code processes
+# Shows active worktrees, PR status, and Claude Code processes
 
-echo "📊 Feature Development Status"
-echo "=============================="
-
-# Show git worktrees
-echo ""
-echo "🌿 Git Worktrees:"
-git worktree list
+echo "📊 Feature Status"
+echo "================"
 
 # Show active features
-echo ""
-echo "📁 Active Features:"
 if [ -d ".worktrees" ] && [ "$(ls -A .worktrees 2>/dev/null)" ]; then
+    echo ""
     for feature in .worktrees/*/; do
         if [ -d "$feature" ]; then
             feature_name=$(basename "$feature")
             branch_name="feature/$feature_name"
             
-            echo "  🔧 $feature_name"
-            echo "     📂 Path: $feature"
-            echo "     🌿 Branch: $branch_name"
+            echo "$feature_name:"
             
-            # Check if there are uncommitted changes
-            cd "$feature"
+            # Check Claude process status (look for process with cwd in this feature directory)
+            feature_path=$(realpath "$feature" 2>/dev/null || echo "$feature")
+            claude_pid=""
+            
+            # Find processes that have this feature directory as their working directory
+            for pid in $(ps aux | grep -E "(claude|node)" | grep -v grep | awk '{print $2}'); do
+                if [ -n "$pid" ]; then
+                    cwd=$(lsof -p "$pid" 2>/dev/null | awk '/cwd/ {print $NF}' | head -1)
+                    if [ "$cwd" = "$feature_path" ]; then
+                        claude_pid="$pid"
+                        break
+                    fi
+                fi
+            done
+            
+            if [ -n "$claude_pid" ]; then
+                etime=$(ps -p "$claude_pid" -o etime= 2>/dev/null | tr -d ' ' || echo "unknown")
+                echo "- claude running (PID $claude_pid, $etime)"
+            else
+                echo "- claude not running"
+            fi
+            
+            # Check git status
+            cd "$feature" >/dev/null 2>&1
             if ! git diff-index --quiet HEAD -- 2>/dev/null; then
-                echo "     📝 Status: Has uncommitted changes"
+                echo "- git: work in progress"
             elif [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-                echo "     📝 Status: Has untracked files"
+                echo "- git: work in progress"
             else
-                echo "     ✅ Status: Clean working tree"
+                echo "- git: committed"
             fi
             
-            # Check Claude configuration
-            if [ -d ".claude" ]; then
-                echo "     🤖 Claude: Configuration present"
+            # Check GitHub PR status and get URL
+            if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+                pr_url=$(gh pr list --head "$branch_name" --json url --jq '.[0].url' 2>/dev/null || echo "")
+                if [ -n "$pr_url" ] && [ "$pr_url" != "null" ]; then
+                    echo "- $pr_url"
+                else
+                    echo "- PR: none"
+                fi
             else
-                echo "     ⚠️  Claude: No configuration (limited permissions)"
+                echo "- PR: none (GitHub CLI not available/authenticated)"
             fi
-            cd - >/dev/null
+            
+            cd - >/dev/null 2>&1
             echo ""
         fi
     done
 else
-    echo "  (none)"
+    echo ""
+    echo "No active features"
 fi
 
-# Show running Claude Code processes
-echo ""
-echo "🤖 Claude Code Processes:"
-claude_processes=$(ps aux | grep "claude.*FEATURE\.md" | grep -v grep || true)
-if [ -n "$claude_processes" ]; then
-    echo "$claude_processes" | while read -r line; do
-        pid=$(echo "$line" | awk '{print $2}')
-        etime=$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ' || echo "unknown")
-        echo "  🏃 PID: $pid (running for: $etime)"
-    done
-else
-    echo "  (none running)"
-fi
-
-echo ""
 echo "💡 Commands:"
-echo "   Start feature: ./scripts/start-feature.sh <feature-file.md>"
-echo "   Clean feature: ./scripts/cleanup-feature.sh <feature-name>"
-echo "   Show status:   ./scripts/status-features.sh" 
+echo "   ./scripts/start-feature.sh <spec.md>  # Start new feature"
+echo "   ./scripts/cleanup-feature.sh <name>   # Remove feature"
+echo "   ./scripts/status-features.sh          # Show this status" 
