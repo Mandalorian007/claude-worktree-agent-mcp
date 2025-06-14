@@ -18,12 +18,14 @@ describe('MCP Tools Integration', () => {
     const { featureStatus } = await import('../../src/tools/feature-status')
     const { featureCleanup } = await import('../../src/tools/feature-cleanup')
     const { featureRevision } = await import('../../src/tools/feature-revision')
+    const { featureSync } = await import('../../src/tools/feature-sync')
 
     expect(typeof verifySetup).toBe('function')
     expect(typeof featureStart).toBe('function')
     expect(typeof featureStatus).toBe('function')
     expect(typeof featureCleanup).toBe('function')
     expect(typeof featureRevision).toBe('function')
+    expect(typeof featureSync).toBe('function')
   })
 
   it('should validate PROJECT_ROOT requirement in tools', async () => {
@@ -55,9 +57,11 @@ describe('MCP Tools Integration', () => {
     // Verify that tools with required parameters throw errors when missing
     const { featureStart } = await import('../../src/tools/feature-start')
     const { featureRevision } = await import('../../src/tools/feature-revision')
+    const { featureSync } = await import('../../src/tools/feature-sync')
 
     // Test that calling with invalid params throws appropriate errors
     await expect(featureStart({ featureFile: '' })).rejects.toThrow()
     await expect(featureRevision({ featureFile: '' })).rejects.toThrow()
+    await expect(featureSync({ featureName: '' })).rejects.toThrow()
   })
 }) 
