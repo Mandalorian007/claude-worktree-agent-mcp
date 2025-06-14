@@ -11,6 +11,7 @@ import { featureStart } from './tools/feature-start.js';
 import { featureStatus } from './tools/feature-status.js';
 import { featureCleanup } from './tools/feature-cleanup.js';
 import { featureRevision } from './tools/feature-revision.js';
+import { featureSync } from './tools/feature-sync.js';
 import { verifySetup } from './tools/verify-setup.js';
 
 const server: Server = new Server(
@@ -137,6 +138,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['featureFile'],
         },
       },
+      {
+        name: 'feature_sync',
+        description: 'Sync a feature branch with the latest main branch using automatic conflict resolution',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            featureName: {
+              type: 'string',
+              description: 'Name of the feature to sync (e.g., "user-dashboard")',
+            },
+          },
+          required: ['featureName'],
+        },
+      },
     ],
   };
 });
@@ -157,6 +172,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         return await featureCleanup(args as any);
       case 'feature_revision':
         return await featureRevision(args as any);
+      case 'feature_sync':
+        return await featureSync(args as any);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
