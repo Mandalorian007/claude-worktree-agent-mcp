@@ -53,7 +53,7 @@ This is an MCP (Model Context Protocol) server that enables autonomous Claude Co
 
 Claude Code has access to the following tools in this environment:
 
-### ✅ Full Access (No Permissions Required)
+### ✅ Full Access (No Permissions Required in project directory)
 - **Agent** - Run sub-agents for complex tasks
 - **Glob** - Find files with pattern matching  
 - **Grep** - Search file contents for patterns
@@ -111,5 +111,5 @@ The compiled output in `dist/index.js` serves as both the main entry point and C
 
 # Development tips
 - use pnpm over npm
-- use `eza -T --git-ignore` to get file overview
+- use `eza -T --git-ignore` to get a project file overview
 - changes should be verified and covered with tests. Validate with `pnpm test`
